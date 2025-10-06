@@ -6,20 +6,19 @@ from hypercorn.asyncio import serve
 from hypercorn.config import Config
 import os
 
-# === Flask Setup ===
+# === Flask ===
 app = Flask(__name__)
 
 @app.route('/')
 def index():
     return "✅ Monica Option Bot läuft!"
 
-# === Telegram Setup ===
-TOKEN = "8228792401:AAErviwIbHLCLQL2ybraKO-d08pbS_GFMhk"  # hier deinen Token eintragen
+# === Telegram ===
+TOKEN = "DEIN_BOT_TOKEN"  # <-- Deinen Token hier einfügen
 BOT_URL = "https://monica-option.onrender.com"
 
 application = Application.builder().token(TOKEN).build()
 
-# einfache Start-Nachricht
 async def start(update: Update, context):
     await update.message.reply_text("👋 Hallo! Monica Option Bot ist aktiv!")
 
@@ -27,14 +26,14 @@ application.add_handler(CommandHandler("start", start))
 
 # === Webhook Endpoint ===
 @app.route(f"/{TOKEN}", methods=["POST"])
-async def webhook():
-    """Empfängt Telegram-Updates."""
+def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
-    await application.process_update(update)
+    # Wir nutzen den globalen Loop:
+    asyncio.get_event_loop().create_task(application.process_update(update))
     return "OK", 200
 
-# === Async Tasks ===
+# === Async Bot und Webserver ===
 async def run_bot():
     await application.initialize()
     await application.bot.set_webhook(url=f"{BOT_URL}/{TOKEN}")
