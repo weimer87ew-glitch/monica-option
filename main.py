@@ -1,4 +1,5 @@
 import asyncio
+import os
 from telegram.ext import Application
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
@@ -12,7 +13,11 @@ def index():
     return "✅ Monica Option Bot läuft!"
 
 async def run_bot():
-    app_telegram = Application.builder().token("DEIN_BOT_TOKEN").build()
+    TOKEN = os.getenv("TELEGRAM_TOKEN")
+    if not TOKEN:
+        raise ValueError("❌ Kein TELEGRAM_TOKEN gefunden! Bitte in Render Environment Variables setzen.")
+    
+    app_telegram = Application.builder().token(TOKEN).build()
     await app_telegram.initialize()
     await app_telegram.start()
     await app_telegram.updater.start_polling()
@@ -29,4 +34,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
