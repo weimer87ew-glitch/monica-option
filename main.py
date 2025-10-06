@@ -1,37 +1,30 @@
-# main.py
-import json
-from flask import Flask, jsonify, render_template_string
+import os
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-STATUS_FILE = "status.json"
+# Lade den Token aus einer Umgebungsvariable
+TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-app = Flask(__name__)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("👋 Hallo! Ich bin Monica Option — dein Trading-Assistent.")
 
-# Simple HTML status page
-HTML = """
-<html>
-  <head><title>Monica Option - Status</title></head>
-  <body>
-    <h1>Monica Option (Simulation)</h1>
-    <pre>{{status}}</pre>
-  </body>
-</html>
-"""
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📘 Befehle:\n/start – Begrüßung\n/help – Hilfe\n/train – KI-Training starten")
 
-def read_status():
-    try:
-        with open(STATUS_FILE, "r") as f:
-            return json.load(f)
-    except Exception:
-        return {"alive": False, "message": "No status yet."}
+async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
+    await update.message.reply_text(f"Du sagtest: {user_message}")
 
-@app.route("/")
-def index():
-    status = read_status()
-    return render_template_string(HTML, status=json.dumps(status, indent=2))
+def main():
+    app = ApplicationBuilder().token(TOKEN).build()
 
-@app.route("/status")
-def status_api():
-    return jsonify(read_status())
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+
+    print("🤖 Monica Option Bot läuft...")
+    app.run_polling()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    main()
+
