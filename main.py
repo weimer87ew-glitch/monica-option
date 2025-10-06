@@ -1,5 +1,5 @@
-import asyncio
 import os
+import asyncio
 from telegram.ext import Application
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
@@ -15,8 +15,9 @@ def index():
 async def run_bot():
     TOKEN = os.getenv("TELEGRAM_TOKEN")
     if not TOKEN:
-        raise ValueError("❌ Kein TELEGRAM_TOKEN gefunden! Bitte in Render Environment Variables setzen.")
-    
+        print("❌ Kein TELEGRAM_TOKEN gefunden! Bitte in Render setzen.")
+        return
+
     app_telegram = Application.builder().token(TOKEN).build()
     await app_telegram.initialize()
     await app_telegram.start()
