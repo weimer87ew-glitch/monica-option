@@ -13,7 +13,7 @@ def index():
     return "✅ Monica Option Bot läuft!"
 
 # === BOT TOKEN UND URL ===
-TOKEN = "8228792401:AAErviwIbHLCLQL2ybraKO-d08pbS_GFMhk"  # ⬅️ Hier deinen echten Token einsetzen!
+TOKEN = "TELEGRAM_BOT_TOKEN"  # ⬅️ Hier deinen echten Token einsetzen!
 BOT_URL = "https://monica-option.onrender.com"
 
 # === Telegram Application ===
