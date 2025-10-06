@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: monica-option
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py"
