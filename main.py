@@ -1,67 +1,54 @@
 import asyncio
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
-
+from telegram.ext import Application, CommandHandler
+from hypercorn.asyncio import serve
+from hypercorn.config import Config
 import os
 
-# -----------------------------
-# 🧩 Konfiguration
-# -----------------------------
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # sicherer: über Render-Umgebung setzen
-WEBHOOK_URL = "https://monica-option.onrender.com/webhook"  # deine Render-URL
-
+# === Flask Setup ===
 app = Flask(__name__)
 
-# -----------------------------
-# 🤖 Telegram-Setup
-# -----------------------------
+@app.route('/')
+def index():
+    return "✅ Monica Option Bot läuft!"
+
+# === Telegram Setup ===
+TOKEN = "8228792401:AAErviwIbHLCLQL2ybraKO-d08pbS_GFMhk"  # hier deinen Token eintragen
+BOT_URL = "https://monica-option.onrender.com"
+
 application = Application.builder().token(TOKEN).build()
 
+# einfache Start-Nachricht
+async def start(update: Update, context):
+    await update.message.reply_text("👋 Hallo! Monica Option Bot ist aktiv!")
 
-# Beispielbefehl /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Hallo, ich bin dein Monica Option Bot! 🚀")
-
-
-# Befehle registrieren
 application.add_handler(CommandHandler("start", start))
 
-
-# -----------------------------
-# 🌍 Flask-Routen
-# -----------------------------
-@app.route("/")
-def index():
-    return "✅ Monica Option Bot läuft über Webhook!"
-
-
-# Telegram sendet Updates an diesen Endpoint:
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    """Empfängt Updates von Telegram"""
+# === Webhook Endpoint ===
+@app.route(f"/{TOKEN}", methods=["POST"])
+async def webhook():
+    """Empfängt Telegram-Updates."""
     data = request.get_json(force=True)
-    asyncio.create_task(application.process_update(Update.de_json(data, application.bot)))
-    return "ok", 200
+    update = Update.de_json(data, application.bot)
+    await application.process_update(update)
+    return "OK", 200
 
+# === Async Tasks ===
+async def run_bot():
+    await application.initialize()
+    await application.bot.set_webhook(url=f"{BOT_URL}/{TOKEN}")
+    print("✅ Webhook erfolgreich gesetzt!")
+    print("🤖 Monica Option Bot ist bereit.")
+    await asyncio.Event().wait()
 
-# -----------------------------
-# 🚀 Start des Bots
-# -----------------------------
-async def main():
-    # Setzt neuen Webhook (löscht alten automatisch)
-    await application.bot.delete_webhook()
-    await application.bot.set_webhook(url=WEBHOOK_URL)
-    print(f"🌐 Webhook gesetzt auf: {WEBHOOK_URL}")
-
-    # Flask Server starten
-    from hypercorn.asyncio import serve
-    from hypercorn.config import Config
-
+async def run_web():
     config = Config()
     config.bind = ["0.0.0.0:10000"]
     await serve(app, config)
 
+async def main():
+    await asyncio.gather(run_bot(), run_web())
 
 if __name__ == "__main__":
     asyncio.run(main())
