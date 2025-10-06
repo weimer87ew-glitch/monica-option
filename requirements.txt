@@ -1,8 +1,9 @@
 flask
 gunicorn
+hypercorn
+python-telegram-bot
 tensorflow
 numpy
 pandas
 matplotlib
 requests
-python-telegram-bot==20.3
