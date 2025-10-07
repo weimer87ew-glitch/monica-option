@@ -12,7 +12,7 @@ from hypercorn.config import Config
 # === Flask App ===
 app = Flask(__name__)
 
-# === Telegram Bot Setup ===
+# === Environment Variablen ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -21,44 +21,51 @@ if not BOT_TOKEN:
 if not CHAT_ID:
     raise ValueError("❌ Kein TELEGRAM_CHAT_ID gefunden! Bitte in Render → Environment Variable hinzufügen.")
 
+# === Telegram Application ===
 application = Application.builder().token(BOT_TOKEN).build()
 
-# === KI Trainingsstatus ===
+# === Trainingsstatus ===
 training_status = {"running": False, "accuracy": None, "message": ""}
+
 
 # === KI-Training ===
 async def train_model():
     global training_status
     training_status["running"] = True
     training_status["message"] = "📈 Training gestartet..."
+    print(training_status["message"])
 
-    try:
-        df = yf.download("EURUSD=X", period="1mo", interval="1h")
-        df.dropna(inplace=True)
+    # 1. Daten abrufen
+    df = yf.download("EURUSD=X", period="1mo", interval="1h")
+    df.dropna(inplace=True)
 
-        if len(df) < 10:
-            training_status["message"] = "❌ Zu wenige Daten für Training."
-            training_status["running"] = False
-            return
-
-        df["Target"] = df["Close"].shift(-1)
-        X = df[["Open", "High", "Low", "Close"]].iloc[:-1]
-        y = df["Target"].iloc[:-1]
-
-        model = LinearRegression()
-        model.fit(X, y)
-
-        accuracy = model.score(X, y)
-        training_status["accuracy"] = round(accuracy * 100, 2)
-        training_status["message"] = f"✅ Training abgeschlossen! Genauigkeit: {training_status['accuracy']}%"
-    except Exception as e:
-        training_status["message"] = f"❌ Fehler im Training: {e}"
-    finally:
+    if len(df) < 10:
+        training_status["message"] = "❌ Zu wenige Daten für Training."
         training_status["running"] = False
+        return
+
+    # 2. Trainingsdaten vorbereiten
+    df["Target"] = df["Close"].shift(-1)
+    X = df[["Open", "High", "Low", "Close"]].iloc[:-1]
+    y = df["Target"].iloc[:-1]
+
+    # 3. Modell trainieren
+    model = LinearRegression()
+    model.fit(X, y)
+
+    accuracy = model.score(X, y)
+    training_status["accuracy"] = round(accuracy * 100, 2)
+    training_status["message"] = f"✅ Training abgeschlossen! Genauigkeit: {training_status['accuracy']}%"
+    training_status["running"] = False
+    print(training_status["message"])
+
 
 # === Telegram Commands ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Hallo! Ich bin Monica Option – dein KI-Trading-Bot.\nNutze /train um das Modell zu trainieren oder /predict für eine Prognose.")
+    await update.message.reply_text(
+        "👋 Hallo! Ich bin Monica Option – dein KI-Trading-Bot.\n"
+        "Nutze /train um das Modell zu trainieren oder /predict für eine Prognose."
+    )
 
 async def train(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if training_status["running"]:
@@ -83,6 +90,14 @@ async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     signal = "📈 BUY" if change > 0 else "📉 SELL"
     await update.message.reply_text(f"Letzter Trend: {signal}\nVeränderung: {round(change, 5)}")
 
+
+# === Handler registrieren ===
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("train", train))
+application.add_handler(CommandHandler("status", status))
+application.add_handler(CommandHandler("predict", predict))
+
+
 # === Flask Routes ===
 @app.route('/')
 def index():
@@ -90,19 +105,19 @@ def index():
 
 @app.route('/webhook', methods=['POST'])
 async def webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
+    data = request.get_json(force=True)
+    update = Update.de_json(data, application.bot)
     await application.process_update(update)
-    return "ok"
+    return "ok", 200
 
-# === Bot starten ===
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("train", train))
-application.add_handler(CommandHandler("status", status))
-application.add_handler(CommandHandler("predict", predict))
 
+# === Server Start ===
 if __name__ == "__main__":
     async def main():
-        await application.initialize()
+        print("🚀 Initialisiere Bot...")
+        await application.initialize()  # <- wichtig!
+        print("✅ Bot initialisiert")
+
         config = Config()
         config.bind = ["0.0.0.0:10000"]
         await serve(app, config)
