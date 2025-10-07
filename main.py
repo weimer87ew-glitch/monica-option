@@ -12,7 +12,7 @@ from hypercorn.config import Config
 # === Flask App ===
 app = Flask(__name__)
 
-# === Telegram Setup ===
+# === Telegram Bot Setup ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -21,20 +21,18 @@ if not BOT_TOKEN:
 if not CHAT_ID:
     raise ValueError("❌ Kein TELEGRAM_CHAT_ID gefunden! Bitte in Render → Environment Variable hinzufügen.")
 
-# === Trainingsstatus global speichern ===
-training_status = {"running": False, "accuracy": None, "message": ""}
-
-# === Telegram Bot Instanz ===
 application = Application.builder().token(BOT_TOKEN).build()
 
-# === KI-Training Funktion ===
+# === KI Trainingsstatus ===
+training_status = {"running": False, "accuracy": None, "message": ""}
+
+# === KI-Training ===
 async def train_model():
     global training_status
     training_status["running"] = True
     training_status["message"] = "📈 Training gestartet..."
 
     try:
-        # 1️⃣ Marktdaten laden (EUR/USD)
         df = yf.download("EURUSD=X", period="1mo", interval="1h")
         df.dropna(inplace=True)
 
@@ -43,41 +41,24 @@ async def train_model():
             training_status["running"] = False
             return
 
-        # 2️⃣ Features & Zielwerte vorbereiten
         df["Target"] = df["Close"].shift(-1)
         X = df[["Open", "High", "Low", "Close"]].iloc[:-1]
         y = df["Target"].iloc[:-1]
 
-        # 3️⃣ Modell trainieren
         model = LinearRegression()
         model.fit(X, y)
 
-        # 4️⃣ Genauigkeit berechnen
         accuracy = model.score(X, y)
         training_status["accuracy"] = round(accuracy * 100, 2)
         training_status["message"] = f"✅ Training abgeschlossen! Genauigkeit: {training_status['accuracy']}%"
-
-        # 5️⃣ Telegram-Benachrichtigung nach Abschluss
-        await application.bot.send_message(
-            chat_id=CHAT_ID,
-            text=f"🎯 KI-Training abgeschlossen!\nGenauigkeit: {training_status['accuracy']}%"
-        )
-
     except Exception as e:
-        training_status["message"] = f"❌ Fehler beim Training: {e}"
-
-    training_status["running"] = False
-
+        training_status["message"] = f"❌ Fehler im Training: {e}"
+    finally:
+        training_status["running"] = False
 
 # === Telegram Commands ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Hallo! Ich bin Monica Option – dein KI-Trading-Bot.\n\n"
-        "Verfügbare Befehle:\n"
-        "📊 /train – starte KI-Training\n"
-        "📡 /status – zeige aktuellen Status\n"
-        "📈 /predict – erhalte eine Marktprognose"
-    )
+    await update.message.reply_text("👋 Hallo! Ich bin Monica Option – dein KI-Trading-Bot.\nNutze /train um das Modell zu trainieren oder /predict für eine Prognose.")
 
 async def train(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if training_status["running"]:
@@ -89,8 +70,7 @@ async def train(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = f"📡 Status: {'läuft' if training_status['running'] else 'bereit'}\n"
     if training_status["accuracy"]:
-        msg += f"🎯 Genauigkeit: {training_status['accuracy']}%\n"
-    msg += f"ℹ️ Info: {training_status['message']}"
+        msg += f"🎯 Genauigkeit: {training_status['accuracy']}%"
     await update.message.reply_text(msg)
 
 async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,27 +83,24 @@ async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     signal = "📈 BUY" if change > 0 else "📉 SELL"
     await update.message.reply_text(f"Letzter Trend: {signal}\nVeränderung: {round(change, 5)}")
 
-
 # === Flask Routes ===
 @app.route('/')
 def index():
     return "✅ Monica Option Bot läuft."
 
 @app.route('/webhook', methods=['POST'])
-async def webhook():
+def webhook():
+    """Synchroner Webhook (Render-kompatibel)"""
     update = Update.de_json(request.get_json(force=True), application.bot)
-    await application.process_update(update)
+    asyncio.run(application.process_update(update))
     return "ok"
 
-
-# === Telegram Bot starten ===
+# === Bot starten ===
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("train", train))
 application.add_handler(CommandHandler("status", status))
 application.add_handler(CommandHandler("predict", predict))
 
-
-# === Hypercorn Server Start ===
 if __name__ == "__main__":
     config = Config()
     config.bind = ["0.0.0.0:10000"]
