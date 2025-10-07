@@ -1,5 +1,5 @@
---no-binary :all:
-python-telegram-bot==20.8
+--only-binary :all:
+python-telegram-bot==21.3
 Flask==3.0.3
 hypercorn==0.15.0
 yfinance==0.2.40
