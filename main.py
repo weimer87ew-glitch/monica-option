@@ -31,6 +31,7 @@ training_status = {"running": False, "accuracy": None, "message": ""}
 
 # === KI-Training ===
 async def train_model():
+    """Trainiert das Modell mit historischen EUR/USD-Daten."""
     global training_status
     training_status["running"] = True
     training_status["message"] = "📈 Training gestartet..."
@@ -60,32 +61,42 @@ async def train_model():
 
 # === Telegram Commands ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Startbefehl."""
     await update.message.reply_text(
         "👋 Hallo! Ich bin Monica Option – dein KI-Trading-Bot.\n"
-        "Nutze /train um das Modell zu trainieren oder /predict für eine Prognose."
+        "Nutze /train um das Modell zu trainieren oder /predict für eine Prognose.\n"
+        "Mit /status siehst du den aktuellen Trainingsstatus."
     )
 
+
 async def train(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Startet das Training."""
     if training_status["running"]:
         await update.message.reply_text("⚙️ Training läuft bereits...")
     else:
         await update.message.reply_text("📊 Starte echtes KI-Training... Bitte warten ⏳")
         asyncio.create_task(train_model())
 
+
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Zeigt den aktuellen Status."""
     msg = f"📡 Status: {'läuft' if training_status['running'] else 'bereit'}\n"
     if training_status["accuracy"]:
         msg += f"🎯 Genauigkeit: {training_status['accuracy']}%"
     await update.message.reply_text(msg)
 
+
 async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Einfacher Prognose-Befehl."""
     df = yf.download("EURUSD=X", period="1d", interval="1h")
     if df.empty:
         await update.message.reply_text("❌ Keine Daten verfügbar.")
         return
+
     last = df.iloc[-1]
     change = last["Close"] - last["Open"]
-    signal = "📈 BUY" if change.iloc[-1] > 0 else "📉 SELL"
+    signal = "📈 BUY" if change > 0 else "📉 SELL"
+
     await update.message.reply_text(f"Letzter Trend: {signal}\nVeränderung: {round(change, 5)}")
 
 
@@ -101,12 +112,22 @@ application.add_handler(CommandHandler("predict", predict))
 def index():
     return "✅ Monica Option Bot läuft."
 
+
 @app.route('/webhook', methods=['POST'])
-async def webhook():
+def webhook():
+    """Telegram Webhook Endpoint"""
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
-    await application.process_update(update)
-    return "ok", 200
+
+    # Sicherstellen, dass Event-Loop korrekt läuft
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    loop.create_task(application.process_update(update))
+    return "OK", 200
 
 
 # === Server Start mit automatischem Webhook ===
@@ -121,6 +142,7 @@ if __name__ == "__main__":
 
         print("✅ Webhook gesetzt & Bot initialisiert!")
 
+        # Hypercorn-Server starten
         config = Config()
         config.bind = ["0.0.0.0:10000"]
         await serve(app, config)
