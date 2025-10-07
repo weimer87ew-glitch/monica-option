@@ -8,16 +8,17 @@ from hypercorn.config import Config
 
 # === ENVIRONMENT VARIABLEN ===
 TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
-if not TOKEN:
-    raise ValueError("❌ Kein Telegram Token gefunden! Bitte TELEGRAM_TOKEN in Render Environment Variables setzen.")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 app = Flask(__name__)
+
+# === TELEGRAM APPLICATION ===
 application = Application.builder().token(TOKEN).build()
 
 # === TELEGRAM BEFEHLE ===
 @app.route("/")
 def index():
-    return "✅ Monica Option Bot läuft"
+    return "✅ Monica Option Bot läuft!"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Hallo! Ich bin dein Monica Option KI-Bot 🤖")
@@ -33,30 +34,32 @@ application.add_handler(CommandHandler("status", status))
 async def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
-    # Sicherstellen, dass Application initialisiert ist
-    if not application.running:
-        await application.initialize()
-        await application.start()
     await application.process_update(update)
     return "OK", 200
 
 # === HAUPTSTART ===
-async def run():
+async def main():
     port = int(os.environ.get("PORT", 8000))
-    webhook_url = f"https://monica-option.onrender.com/webhook"
+    webhook_url = f"https://monica-option-train.onrender.com/webhook"
 
+    # 1️⃣ Telegram Bot vorbereiten
     print(f"🚀 Setze Webhook auf {webhook_url}")
     await application.initialize()
-    await application.start()
     await application.bot.set_webhook(webhook_url)
+    await application.start()
+    print("✅ Telegram-Bot gestartet")
 
-    info = await application.bot.get_webhook_info()
-    print("🌐 Webhook-Status:", info)
-
+    # 2️⃣ Hypercorn-Server starten
     config = Config()
     config.bind = [f"0.0.0.0:{port}"]
     await serve(app, config)
 
+    # 3️⃣ Stop-Handler für sauberes Beenden
+    await application.stop()
+    await application.shutdown()
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("🛑 Server gestoppt")
