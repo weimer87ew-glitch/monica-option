@@ -5,6 +5,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
+import threading
 
 # === ENVIRONMENT VARIABLEN ===
 TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
@@ -27,11 +28,16 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("status", status))
 
+# === THREAD-FUNKTION FÜR ASYNC HANDLING ===
+def run_async_task(coro):
+    """Starte Async-Funktion sicher in einem neuen Event Loop."""
+    threading.Thread(target=lambda: asyncio.run(coro)).start()
+
 # === TELEGRAM WEBHOOK ===
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
-    asyncio.create_task(handle_update(data))  # asynchron behandeln
+    run_async_task(handle_update(data))
     return "OK", 200
 
 async def handle_update(data):
@@ -52,9 +58,6 @@ async def main():
     config = Config()
     config.bind = [f"0.0.0.0:{port}"]
     await serve(app, config)
-
-    await application.stop()
-    await application.shutdown()
 
 if __name__ == "__main__":
     try:
