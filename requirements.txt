@@ -1,6 +1,7 @@
+--no-binary :all:
+python-telegram-bot==20.8
 Flask==3.0.3
 hypercorn==0.15.0
-python-telegram-bot==20.8
 yfinance==0.2.40
 pandas==2.2.3
 scikit-learn==1.5.2
