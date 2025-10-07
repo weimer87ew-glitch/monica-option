@@ -22,7 +22,7 @@ if not BOT_TOKEN:
 if not CHAT_ID:
     raise ValueError("❌ Kein TELEGRAM_CHAT_ID gefunden! Bitte in Render → Environment Variable hinzufügen.")
 
-# === Telegram Bot Anwendung ===
+# === Telegram Application ===
 application = Application.builder().token(BOT_TOKEN).build()
 
 # === Statusspeicher ===
@@ -61,7 +61,8 @@ async def train_model():
     finally:
         training_status["running"] = False
 
-# === Telegram Befehle ===
+
+# === Telegram-Befehle ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Hallo! Ich bin Monica Option – dein KI-Trading-Bot.\n\n"
@@ -71,12 +72,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/predict – Marktprognose anzeigen"
     )
 
+
 async def train(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if training_status["running"]:
         await update.message.reply_text("⚙️ Training läuft bereits...")
     else:
         await update.message.reply_text("📊 Starte KI-Training... Bitte warten ⏳")
         asyncio.create_task(train_model())
+
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = f"📡 Status: {'läuft' if training_status['running'] else 'bereit'}"
@@ -85,6 +88,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if training_status["message"]:
         msg += f"\nℹ️ {training_status['message']}"
     await update.message.reply_text(msg)
+
 
 async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -99,6 +103,7 @@ async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Fehler bei der Prognose: {e}")
 
+
 # === Handler ===
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("train", train))
@@ -110,10 +115,14 @@ application.add_handler(CommandHandler("predict", predict))
 def home():
     return "✅ Monica Option Bot läuft (Render aktiv)."
 
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
+
+    async def process():
+        await application.process_update(update)
 
     try:
         loop = asyncio.get_running_loop()
@@ -121,8 +130,9 @@ def webhook():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-    loop.create_task(application.process_update(update))
+    loop.create_task(process())
     return "ok", 200
+
 
 # === Start Render-kompatibel ===
 if __name__ == "__main__":
