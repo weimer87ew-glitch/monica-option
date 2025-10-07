@@ -15,6 +15,7 @@ app = Flask(__name__)
 # === Environment Variablen ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL") or "https://monica-option.onrender.com"
 
 if not BOT_TOKEN:
     raise ValueError("❌ Kein BOT_TOKEN gefunden! Bitte in Render → Environment Variable hinzufügen.")
@@ -35,7 +36,6 @@ async def train_model():
     training_status["message"] = "📈 Training gestartet..."
     print(training_status["message"])
 
-    # 1. Daten abrufen
     df = yf.download("EURUSD=X", period="1mo", interval="1h")
     df.dropna(inplace=True)
 
@@ -44,12 +44,10 @@ async def train_model():
         training_status["running"] = False
         return
 
-    # 2. Trainingsdaten vorbereiten
     df["Target"] = df["Close"].shift(-1)
     X = df[["Open", "High", "Low", "Close"]].iloc[:-1]
     y = df["Target"].iloc[:-1]
 
-    # 3. Modell trainieren
     model = LinearRegression()
     model.fit(X, y)
 
@@ -111,12 +109,17 @@ async def webhook():
     return "ok", 200
 
 
-# === Server Start ===
+# === Server Start mit automatischem Webhook ===
 if __name__ == "__main__":
     async def main():
         print("🚀 Initialisiere Bot...")
-        await application.initialize()  # <- wichtig!
-        print("✅ Bot initialisiert")
+        await application.initialize()
+
+        webhook_url = f"{RENDER_URL}/webhook"
+        print(f"🌍 Setze Webhook auf: {webhook_url}")
+        await application.bot.set_webhook(webhook_url)
+
+        print("✅ Webhook gesetzt & Bot initialisiert!")
 
         config = Config()
         config.bind = ["0.0.0.0:10000"]
