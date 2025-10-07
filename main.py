@@ -17,42 +17,44 @@ BOT_TOKEN = "DEIN_TELEGRAM_BOT_TOKEN"
 # === Telegram Bot initialisieren ===
 application = Application.builder().token(BOT_TOKEN).build()
 
-# === Beispiel-Funktion: Startkommando ===
+# === Beispiel-Funktion ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🚀 Monica Option Bot läuft!")
 
 application.add_handler(CommandHandler("start", start))
 
-# === Flask Route: Statusanzeige ===
+# === Statusseite ===
 @app.route('/')
 def index():
-    return "✅ Monica Option Bot läuft auf Render.com!"
+    return "✅ Monica Option Bot läuft auf Render!"
 
 # === Webhook Endpoint ===
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """Verarbeitet eingehende Telegram-Updates (async-sicher)."""
+    """Sicherer Async-Aufruf (Python 3.13 kompatibel)."""
     try:
         update = Update.de_json(request.get_json(force=True), application.bot)
 
-        # Prüfen, ob bereits ein Event-Loop existiert (Python 3.13 braucht das)
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
 
         if loop and loop.is_running():
-            # Wenn ein Loop aktiv ist → Task dort starten
             loop.create_task(application.process_update(update))
         else:
-            # Wenn kein Loop aktiv ist → neuen erstellen
-            asyncio.run(application.process_update(update))
+            # Neuer Loop, wenn keiner existiert
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(application.process_update(update))
+            loop.close()
 
     except Exception as e:
         print(f"❌ Fehler im Webhook: {e}")
     return "OK", 200
 
-# === Trading Beispiel (Dummy) ===
+
+# === Beispiel: einfache Kursvorhersage ===
 def simple_prediction(symbol: str):
     data = yf.download(symbol, period="7d", interval="1h")
     if len(data) < 2:
@@ -70,7 +72,7 @@ def simple_prediction(symbol: str):
     else:
         return f"📉 Signal: Verkaufsempfehlung ({trend:.4f})"
 
-# === Test-Route ===
+# === Test-Endpoint ===
 @app.route('/predict/<symbol>')
 def predict(symbol):
     try:
@@ -78,12 +80,11 @@ def predict(symbol):
     except Exception as e:
         return f"❌ Fehler: {e}"
 
-# === Hypercorn Server starten ===
+# === Hypercorn starten ===
 if __name__ == "__main__":
     config = Config()
     config.bind = ["0.0.0.0:10000"]
-    config.use_uvloop = False  # 🚫 uvloop deaktivieren für Python 3.13
+    config.use_uvloop = False  # Wichtig für Python 3.13
     config.use_reloader = False
 
-    # Anwendung asynchron starten
     asyncio.run(serve(app, config))
