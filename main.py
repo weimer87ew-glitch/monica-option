@@ -20,40 +20,38 @@ def index():
     return "✅ Monica Option Bot läuft!"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Hallo! Ich bin dein Monica Option KI-Bot 🤖")
+    await update.message.reply_text("Hallo 👋 Ich bin dein Monica Option KI-Bot 🤖")
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📊 KI-Status: Läuft aktuell und empfängt Signale.")
+    await update.message.reply_text("📊 KI-Status: Läuft und empfängt Trading-Signale.")
 
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("status", status))
 
-# === THREAD-FUNKTION FÜR ASYNC HANDLING ===
-def run_async_task(coro):
-    """Starte Async-Funktion sicher in einem neuen Event Loop."""
-    threading.Thread(target=lambda: asyncio.run(coro)).start()
+# === ASYNC HANDLER ===
+def run_async(coro):
+    """Sicheres Starten einer Async-Funktion in eigenem Event Loop."""
+    def runner():
+        asyncio.run(coro)
+    threading.Thread(target=runner).start()
 
-# === TELEGRAM WEBHOOK ===
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
-    run_async_task(handle_update(data))
+    update = Update.de_json(data, application.bot)
+    run_async(application.process_update(update))
     return "OK", 200
 
-async def handle_update(data):
-    update = Update.de_json(data, application.bot)
-    await application.process_update(update)
-
-# === HAUPTSTART ===
+# === SERVER START ===
 async def main():
     port = int(os.environ.get("PORT", 8000))
-    webhook_url = f"https://monica-option.onrender.com/webhook"
+    webhook_url = "https://monica-option.onrender.com/webhook"
 
-    print(f"🚀 Setze Webhook auf {webhook_url}")
+    print(f"🚀 Setze Telegram Webhook: {webhook_url}")
     await application.initialize()
     await application.bot.set_webhook(webhook_url)
     await application.start()
-    print("✅ Telegram-Bot gestartet")
+    print("✅ Telegram-Bot gestartet!")
 
     config = Config()
     config.bind = [f"0.0.0.0:{port}"]
