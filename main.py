@@ -4,6 +4,11 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
+import requests
+import os
+
+# === KI-Worker Verbindung ===
+WORKER_URL = os.getenv("WORKER_URL", "https://monica-option-train.onrender.com")
 
 # Flask App
 app = Flask(__name__)
@@ -13,7 +18,7 @@ def index():
     return "✅ Monica Option Bot läuft!"
 
 # === BOT TOKEN UND URL ===
-TOKEN = "8228792401:AAErviwIbHLCLQL2ybraKO-d08pbS_GFMhk"  # ⬅️ Hier deinen echten Token einsetzen!
+TOKEN = "8228792401:AAErviwIbHLCLQL2ybraKO-d08pbS_GFMhk"  # ⬅️ Deinen echten Token einsetzen!
 BOT_URL = "https://monica-option.onrender.com"
 
 # === Telegram Application ===
@@ -23,7 +28,33 @@ application = Application.builder().token(TOKEN).build()
 async def start(update: Update, context):
     await update.message.reply_text("👋 Hallo! Monica Option Bot ist aktiv!")
 
+# ✅ HIER neuen Code EINFÜGEN:
+# === KI-Kommandos ===
+async def train(update: Update, context):
+    await update.message.reply_text("🚀 Sende Trainingsauftrag an KI-Worker...")
+    try:
+        r = requests.post(f"{WORKER_URL}/start_training")
+        if r.status_code == 200:
+            await update.message.reply_text("✅ Training gestartet! Ich melde mich, sobald es fertig ist.")
+        else:
+            await update.message.reply_text("⚠️ Fehler beim Starten des Trainings.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Verbindung zum Worker fehlgeschlagen: {e}")
+
+async def status(update: Update, context):
+    try:
+        r = requests.get(f"{WORKER_URL}/status")
+        if r.status_code == 200:
+            await update.message.reply_text(f"📊 KI-Status:\n{r.text}")
+        else:
+            await update.message.reply_text("⚠️ Fehler beim Abfragen des Status.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Keine Verbindung zum Worker: {e}")
+
+# === Handler registrieren ===
 application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("train", train))     # 👈 neu
+application.add_handler(CommandHandler("status", status))   # 👈 neu
 
 # === GLOBALER LOOP ===
 loop = asyncio.new_event_loop()
