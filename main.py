@@ -35,32 +35,37 @@ async def train_model():
     training_status["message"] = "📈 Training gestartet..."
     print(training_status["message"])
 
-    df = yf.download("EURUSD=X", period="1mo", interval="1h")
-    df.dropna(inplace=True)
+    try:
+        df = yf.download("EURUSD=X", period="1mo", interval="1h")
+        df.dropna(inplace=True)
 
-    if len(df) < 10:
-        training_status["message"] = "❌ Zu wenige Daten für Training."
+        if len(df) < 10:
+            training_status["message"] = "❌ Zu wenige Daten für Training."
+            training_status["running"] = False
+            return
+
+        df["Target"] = df["Close"].shift(-1)
+        X = df[["Open", "High", "Low", "Close"]].iloc[:-1]
+        y = df["Target"].iloc[:-1]
+
+        model = LinearRegression()
+        model.fit(X, y)
+
+        acc = model.score(X, y)
+        training_status["accuracy"] = round(acc * 100, 2)
+        training_status["message"] = f"✅ Training abgeschlossen! Genauigkeit: {training_status['accuracy']}%"
+        print(training_status["message"])
+    except Exception as e:
+        training_status["message"] = f"❌ Fehler beim Training: {e}"
+        print(training_status["message"])
+    finally:
         training_status["running"] = False
-        return
-
-    df["Target"] = df["Close"].shift(-1)
-    X = df[["Open", "High", "Low", "Close"]].iloc[:-1]
-    y = df["Target"].iloc[:-1]
-
-    model = LinearRegression()
-    model.fit(X, y)
-
-    acc = model.score(X, y)
-    training_status["accuracy"] = round(acc * 100, 2)
-    training_status["message"] = f"✅ Training abgeschlossen! Genauigkeit: {training_status['accuracy']}%"
-    training_status["running"] = False
-    print(training_status["message"])
 
 # === Telegram Befehle ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Hallo! Ich bin Monica Option – dein KI-Trading-Bot.\n"
-        "Verfügbare Befehle:\n"
+        "👋 Hallo! Ich bin Monica Option – dein KI-Trading-Bot.\n\n"
+        "📜 Befehle:\n"
         "/train – Starte KI-Training\n"
         "/status – Zeige Trainingsstatus\n"
         "/predict – Marktprognose anzeigen"
@@ -77,17 +82,22 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = f"📡 Status: {'läuft' if training_status['running'] else 'bereit'}"
     if training_status["accuracy"]:
         msg += f"\n🎯 Genauigkeit: {training_status['accuracy']}%"
+    if training_status["message"]:
+        msg += f"\nℹ️ {training_status['message']}"
     await update.message.reply_text(msg)
 
 async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    df = yf.download("EURUSD=X", period="1d", interval="1h")
-    if df.empty:
-        await update.message.reply_text("❌ Keine Daten verfügbar.")
-        return
-    last = df.iloc[-1]
-    change = last["Close"] - last["Open"]
-    signal = "📈 BUY" if change > 0 else "📉 SELL"
-    await update.message.reply_text(f"Letzter Trend: {signal}\nVeränderung: {round(change, 5)}")
+    try:
+        df = yf.download("EURUSD=X", period="1d", interval="1h")
+        if df.empty:
+            await update.message.reply_text("❌ Keine Daten verfügbar.")
+            return
+        last = df.iloc[-1]
+        change = last["Close"] - last["Open"]
+        signal = "📈 BUY" if change > 0 else "📉 SELL"
+        await update.message.reply_text(f"Letzter Trend: {signal}\nVeränderung: {round(change, 5)}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Fehler bei der Prognose: {e}")
 
 # === Handler ===
 application.add_handler(CommandHandler("start", start))
@@ -98,22 +108,23 @@ application.add_handler(CommandHandler("predict", predict))
 # === Flask Routes ===
 @app.route("/")
 def home():
-    return "✅ Monica Option Bot läuft."
+    return "✅ Monica Option Bot läuft (Render aktiv)."
 
-@app.route('/webhook', methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
 
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        loop.create_task(application.process_update(update))
-    else:
-        loop.run_until_complete(application.process_update(update))
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
+    loop.create_task(application.process_update(update))
     return "ok", 200
 
-# === Start (Render-kompatibel) ===
+# === Start Render-kompatibel ===
 if __name__ == "__main__":
     async def main():
         print("🚀 Starte Monica Option...")
@@ -127,5 +138,7 @@ if __name__ == "__main__":
         config = Config()
         config.bind = ["0.0.0.0:10000"]
         await serve(app, config)
+
+        print("✅ Monica Option läuft stabil auf Render (Webhook-Modus aktiviert)")
 
     asyncio.run(main())
