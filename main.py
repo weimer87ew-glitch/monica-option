@@ -85,7 +85,7 @@ async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     last = df.iloc[-1]
     change = last["Close"] - last["Open"]
-    signal = "📈 BUY" if change > 0 else "📉 SELL"
+    signal = "📈 BUY" if change.iloc[-1] > 0 else "📉 SELL"
     await update.message.reply_text(f"Letzter Trend: {signal}\nVeränderung: {round(change, 5)}")
 
 
