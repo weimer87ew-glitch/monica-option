@@ -8,7 +8,8 @@ from hypercorn.config import Config
 
 # === ENVIRONMENT VARIABLEN ===
 TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+if not TOKEN:
+    raise ValueError("❌ Kein Telegram Token gefunden! Bitte TELEGRAM_TOKEN in Render Environment Variables setzen.")
 
 app = Flask(__name__)
 application = Application.builder().token(TOKEN).build()
@@ -32,6 +33,10 @@ application.add_handler(CommandHandler("status", status))
 async def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
+    # Sicherstellen, dass Application initialisiert ist
+    if not application.running:
+        await application.initialize()
+        await application.start()
     await application.process_update(update)
     return "OK", 200
 
@@ -41,6 +46,8 @@ async def run():
     webhook_url = f"https://monica-option.onrender.com/webhook"
 
     print(f"🚀 Setze Webhook auf {webhook_url}")
+    await application.initialize()
+    await application.start()
     await application.bot.set_webhook(webhook_url)
 
     info = await application.bot.get_webhook_info()
