@@ -1,6 +1,8 @@
-flask
-python-telegram-bot==20.3
+flask[async]
+gunicorn
 hypercorn
+python-telegram-bot
 yfinance
 pandas
 scikit-learn
+requests
