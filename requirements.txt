@@ -2,9 +2,4 @@ flask[async]
 gunicorn
 hypercorn
 python-telegram-bot
-tensorflow
-numpy
-pandas
-matplotlib
 requests
-hypercorn
