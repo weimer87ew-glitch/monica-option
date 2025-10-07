@@ -22,16 +22,14 @@ if not BOT_TOKEN:
 if not CHAT_ID:
     raise ValueError("❌ Kein TELEGRAM_CHAT_ID gefunden! Bitte in Render → Environment Variable hinzufügen.")
 
-# === Telegram Application ===
+# === Telegram Bot Anwendung ===
 application = Application.builder().token(BOT_TOKEN).build()
 
-# === Trainingsstatus ===
+# === Statusspeicher ===
 training_status = {"running": False, "accuracy": None, "message": ""}
 
-
-# === KI-Training ===
+# === KI-Trainingsfunktion ===
 async def train_model():
-    """Trainiert das Modell mit historischen EUR/USD-Daten."""
     global training_status
     training_status["running"] = True
     training_status["message"] = "📈 Training gestartet..."
@@ -52,97 +50,74 @@ async def train_model():
     model = LinearRegression()
     model.fit(X, y)
 
-    accuracy = model.score(X, y)
-    training_status["accuracy"] = round(accuracy * 100, 2)
+    acc = model.score(X, y)
+    training_status["accuracy"] = round(acc * 100, 2)
     training_status["message"] = f"✅ Training abgeschlossen! Genauigkeit: {training_status['accuracy']}%"
     training_status["running"] = False
     print(training_status["message"])
 
-
-# === Telegram Commands ===
+# === Telegram Befehle ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Startbefehl."""
     await update.message.reply_text(
         "👋 Hallo! Ich bin Monica Option – dein KI-Trading-Bot.\n"
-        "Nutze /train um das Modell zu trainieren oder /predict für eine Prognose.\n"
-        "Mit /status siehst du den aktuellen Trainingsstatus."
+        "Verfügbare Befehle:\n"
+        "/train – Starte KI-Training\n"
+        "/status – Zeige Trainingsstatus\n"
+        "/predict – Marktprognose anzeigen"
     )
 
-
 async def train(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Startet das Training."""
     if training_status["running"]:
         await update.message.reply_text("⚙️ Training läuft bereits...")
     else:
-        await update.message.reply_text("📊 Starte echtes KI-Training... Bitte warten ⏳")
+        await update.message.reply_text("📊 Starte KI-Training... Bitte warten ⏳")
         asyncio.create_task(train_model())
 
-
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Zeigt den aktuellen Status."""
-    msg = f"📡 Status: {'läuft' if training_status['running'] else 'bereit'}\n"
+    msg = f"📡 Status: {'läuft' if training_status['running'] else 'bereit'}"
     if training_status["accuracy"]:
-        msg += f"🎯 Genauigkeit: {training_status['accuracy']}%"
+        msg += f"\n🎯 Genauigkeit: {training_status['accuracy']}%"
     await update.message.reply_text(msg)
 
-
 async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Einfacher Prognose-Befehl."""
     df = yf.download("EURUSD=X", period="1d", interval="1h")
     if df.empty:
         await update.message.reply_text("❌ Keine Daten verfügbar.")
         return
-
     last = df.iloc[-1]
     change = last["Close"] - last["Open"]
     signal = "📈 BUY" if change > 0 else "📉 SELL"
-
     await update.message.reply_text(f"Letzter Trend: {signal}\nVeränderung: {round(change, 5)}")
 
-
-# === Handler registrieren ===
+# === Handler ===
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("train", train))
 application.add_handler(CommandHandler("status", status))
 application.add_handler(CommandHandler("predict", predict))
 
-
 # === Flask Routes ===
-@app.route('/')
-def index():
+@app.route("/")
+def home():
     return "✅ Monica Option Bot läuft."
 
-
-@app.route('/webhook', methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 def webhook():
-    """Telegram Webhook Endpoint"""
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
+    asyncio.get_event_loop().create_task(application.process_update(update))
+    return "ok", 200
 
-    # Sicherstellen, dass Event-Loop korrekt läuft
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    loop.create_task(application.process_update(update))
-    return "OK", 200
-
-
-# === Server Start mit automatischem Webhook ===
+# === Start (Render-kompatibel) ===
 if __name__ == "__main__":
     async def main():
-        print("🚀 Initialisiere Bot...")
+        print("🚀 Starte Monica Option...")
         await application.initialize()
 
         webhook_url = f"{RENDER_URL}/webhook"
         print(f"🌍 Setze Webhook auf: {webhook_url}")
         await application.bot.set_webhook(webhook_url)
-
         print("✅ Webhook gesetzt & Bot initialisiert!")
 
-        # Hypercorn-Server starten
         config = Config()
         config.bind = ["0.0.0.0:10000"]
         await serve(app, config)
