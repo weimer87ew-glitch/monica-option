@@ -1,5 +1,4 @@
-flask
-gunicorn
+flask[async]
 hypercorn
 python-telegram-bot==21.4
 yfinance
