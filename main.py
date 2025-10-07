@@ -116,21 +116,19 @@ def home():
     return "✅ Monica Option Bot läuft (Render aktiv)."
 
 
-@app.route("/webhook", methods=["POST"])
+@app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
 
-    async def process():
-        await application.process_update(update)
-
+    # Neuer Event Loop pro Thread – stabil & sicher
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-    loop.create_task(process())
+    loop.create_task(application.process_update(update))
     return "ok", 200
 
 
