@@ -1,62 +1,70 @@
 import asyncio
+import os
+import requests
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
-import requests
-import os
 
-# === KI-Worker Verbindung ===
-WORKER_URL = os.getenv("WORKER_URL", "https://monica-option-train.onrender.com")
-
-# Flask App
+# === Flask Webserver ===
 app = Flask(__name__)
 
 @app.route('/')
 def index():
-    return "✅ Monica Option Bot läuft!"
+    return "✅ Monica Option Hauptbot läuft!"
 
-# === BOT TOKEN UND URL ===
-TOKEN = "8228792401:AAErviwIbHLCLQL2ybraKO-d08pbS_GFMhk"  # ⬅️ Deinen echten Token einsetzen!
-BOT_URL = "https://monica-option.onrender.com"
+# === KONFIGURATION ===
+TOKEN = "DEIN_TELEGRAM_BOT_TOKEN"  # <-- hier deinen echten Bot-Token einsetzen
+BOT_URL = "https://monica-option.onrender.com"  # <-- URL von deinem Hauptbot
+WORKER_URL = "https://monica-option-train.onrender.com"  # <-- URL deines KI-Workers (Render-Link)
 
-# === Telegram Application ===
+# === Telegram Bot Application ===
 application = Application.builder().token(TOKEN).build()
 
-# === Einfacher /start Command ===
+# === /start ===
 async def start(update: Update, context):
-    await update.message.reply_text("👋 Hallo! Monica Option Bot ist aktiv!")
+    await update.message.reply_text("👋 Monica Option Bot ist bereit! Nutze /train oder /status.")
 
-# ✅ HIER neuen Code EINFÜGEN:
-# === KI-Kommandos ===
+# === /train: startet das KI-Training im Worker ===
 async def train(update: Update, context):
-    await update.message.reply_text("🚀 Sende Trainingsauftrag an KI-Worker...")
     try:
-        r = requests.post(f"{WORKER_URL}/start_training")
-        if r.status_code == 200:
-            await update.message.reply_text("✅ Training gestartet! Ich melde mich, sobald es fertig ist.")
+        response = requests.post(f"{WORKER_URL}/start_training", timeout=10)
+        if response.status_code == 200:
+            msg = response.json().get("message", "Training gestartet.")
         else:
-            await update.message.reply_text("⚠️ Fehler beim Starten des Trainings.")
+            msg = f"⚠️ Fehler: {response.text}"
     except Exception as e:
-        await update.message.reply_text(f"❌ Verbindung zum Worker fehlgeschlagen: {e}")
+        msg = f"❌ Verbindung zum Worker fehlgeschlagen: {e}"
+    await update.message.reply_text(msg)
 
+# === /status: fragt Status vom Worker ab ===
 async def status(update: Update, context):
     try:
-        r = requests.get(f"{WORKER_URL}/status")
-        if r.status_code == 200:
-            await update.message.reply_text(f"📊 KI-Status:\n{r.text}")
+        response = requests.get(f"{WORKER_URL}/status", timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            text = (
+                f"📊 **Training-Status:**\n"
+                f"- Läuft: {data.get('is_training', False)}\n"
+                f"- Episode: {data.get('episode', '—')}\n"
+                f"- Letzte Belohnung: {data.get('last_reward', '—')}\n"
+                f"- Durchschnitt (10): {data.get('avg_reward_10', '—')}\n"
+                f"- Epsilon: {data.get('epsilon', '—')}\n"
+                f"- Zeit: {data.get('elapsed_s', '—')}s"
+            )
         else:
-            await update.message.reply_text("⚠️ Fehler beim Abfragen des Status.")
+            text = f"⚠️ Fehler: {response.text}"
     except Exception as e:
-        await update.message.reply_text(f"❌ Keine Verbindung zum Worker: {e}")
+        text = f"❌ Verbindung zum Worker fehlgeschlagen: {e}"
+    await update.message.reply_text(text)
 
-# === Handler registrieren ===
+# === Telegram Handler ===
 application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("train", train))     # 👈 neu
-application.add_handler(CommandHandler("status", status))   # 👈 neu
+application.add_handler(CommandHandler("train", train))
+application.add_handler(CommandHandler("status", status))
 
-# === GLOBALER LOOP ===
+# === Globaler Event Loop ===
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
@@ -65,16 +73,16 @@ asyncio.set_event_loop(loop)
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
-    loop.create_task(application.process_update(update))  # <-- globaler Loop, kein Fehler!
+    loop.create_task(application.process_update(update))
     return "OK", 200
 
-# === BOT STARTEN ===
+# === BOT START ===
 async def run_bot():
     await application.initialize()
     await application.bot.set_webhook(url=f"{BOT_URL}/{TOKEN}")
-    print("✅ Webhook erfolgreich gesetzt!")
-    print("🤖 Monica Option Bot ist bereit.")
-    await asyncio.Event().wait()  # hält ihn am Laufen
+    print("✅ Webhook aktiv!")
+    print("🤖 Monica Option Bot läuft...")
+    await asyncio.Event().wait()
 
 async def run_web():
     config = Config()
