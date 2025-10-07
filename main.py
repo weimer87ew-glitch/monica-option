@@ -1,96 +1,77 @@
-import asyncio
 import os
-import requests
-from flask import Flask, request
-from telegram import Update
-from telegram.ext import Application, CommandHandler
-from hypercorn.asyncio import serve
-from hypercorn.config import Config
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # ✅ Nur CPU-Modus erzwingen
 
-# === Flask Webserver ===
+import json
+import tensorflow as tf
+from flask import Flask, request, jsonify
+
 app = Flask(__name__)
 
-@app.route('/')
+# === KI Trainingsstatus ===
+TRAINING_STATUS_FILE = "training_status.json"
+
+
+# === Hilfsfunktionen ===
+def save_status(data):
+    with open(TRAINING_STATUS_FILE, "w") as f:
+        json.dump(data, f)
+
+
+def load_status():
+    if not os.path.exists(TRAINING_STATUS_FILE):
+        return {"is_training": False, "message": "❌ Keine Statusdaten gefunden."}
+    with open(TRAINING_STATUS_FILE, "r") as f:
+        return json.load(f)
+
+
+# === Dummy KI Trainingsfunktion ===
+def train_model():
+    status = {"is_training": True, "message": "🚀 Training läuft..."}
+    save_status(status)
+
+    try:
+        # Beispielmodell (TensorFlow CPU)
+        model = tf.keras.Sequential([
+            tf.keras.layers.Dense(64, activation="relu", input_shape=(10,)),
+            tf.keras.layers.Dense(64, activation="relu"),
+            tf.keras.layers.Dense(1, activation="sigmoid")
+        ])
+
+        model.compile(optimizer="adam", loss="binary_crossentropy")
+        import numpy as np
+        x = np.random.random((500, 10))
+        y = np.random.randint(2, size=(500, 1))
+        model.fit(x, y, epochs=5, verbose=0)
+
+        status = {"is_training": False, "message": "✅ Training erfolgreich abgeschlossen."}
+        save_status(status)
+
+    except Exception as e:
+        status = {"is_training": False, "message": f"❌ Fehler: {e}"}
+        save_status(status)
+
+
+# === API-Routen ===
+
+@app.route("/")
 def index():
-    return "✅ Monica Option Hauptbot läuft!"
+    return "✅ Monica Option Training Worker läuft."
 
-# === KONFIGURATION ===
-TOKEN = "DEIN_TELEGRAM_BOT_TOKEN"  # <-- hier deinen echten Bot-Token einsetzen
-BOT_URL = "https://monica-option.onrender.com"  # <-- URL von deinem Hauptbot
-WORKER_URL = "https://monica-option-train.onrender.com"  # <-- URL deines KI-Workers (Render-Link)
 
-# === Telegram Bot Application ===
-application = Application.builder().token(TOKEN).build()
+@app.route("/start_training", methods=["POST"])
+def start_training():
+    from threading import Thread
+    Thread(target=train_model).start()
+    return jsonify({"message": "Training gestartet."})
 
-# === /start ===
-async def start(update: Update, context):
-    await update.message.reply_text("👋 Monica Option Bot ist bereit! Nutze /train oder /status.")
 
-# === /train: startet das KI-Training im Worker ===
-async def train(update: Update, context):
-    try:
-        response = requests.post(f"{WORKER_URL}/start_training", timeout=10)
-        if response.status_code == 200:
-            msg = response.json().get("message", "Training gestartet.")
-        else:
-            msg = f"⚠️ Fehler: {response.text}"
-    except Exception as e:
-        msg = f"❌ Verbindung zum Worker fehlgeschlagen: {e}"
-    await update.message.reply_text(msg)
+@app.route("/status", methods=["GET"])
+def get_status():
+    return jsonify(load_status())
 
-# === /status: fragt Status vom Worker ab ===
-async def status(update: Update, context):
-    try:
-        response = requests.get(f"{WORKER_URL}/status", timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            text = (
-                f"📊 **Training-Status:**\n"
-                f"- Läuft: {data.get('is_training', False)}\n"
-                f"- Episode: {data.get('episode', '—')}\n"
-                f"- Letzte Belohnung: {data.get('last_reward', '—')}\n"
-                f"- Durchschnitt (10): {data.get('avg_reward_10', '—')}\n"
-                f"- Epsilon: {data.get('epsilon', '—')}\n"
-                f"- Zeit: {data.get('elapsed_s', '—')}s"
-            )
-        else:
-            text = f"⚠️ Fehler: {response.text}"
-    except Exception as e:
-        text = f"❌ Verbindung zum Worker fehlgeschlagen: {e}"
-    await update.message.reply_text(text)
 
-# === Telegram Handler ===
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("train", train))
-application.add_handler(CommandHandler("status", status))
-
-# === Globaler Event Loop ===
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
-# === Webhook Endpoint ===
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, application.bot)
-    loop.create_task(application.process_update(update))
-    return "OK", 200
-
-# === BOT START ===
-async def run_bot():
-    await application.initialize()
-    await application.bot.set_webhook(url=f"{BOT_URL}/{TOKEN}")
-    print("✅ Webhook aktiv!")
-    print("🤖 Monica Option Bot läuft...")
-    await asyncio.Event().wait()
-
-async def run_web():
-    config = Config()
-    config.bind = ["0.0.0.0:10000"]
-    await serve(app, config)
-
-async def main():
-    await asyncio.gather(run_bot(), run_web())
-
+# === Startpoint für Render ===
 if __name__ == "__main__":
-    loop.run_until_complete(main())
+    port = int(os.environ.get("PORT", 8000))
+    print(f"🚀 Monica Option KI-Worker läuft auf Port {port}")
+    app.run(host="0.0.0.0", port=port)
