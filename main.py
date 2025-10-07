@@ -89,10 +89,9 @@ def index():
     return "✅ Monica Option Bot läuft."
 
 @app.route('/webhook', methods=['POST'])
-def webhook():
-    """Synchroner Webhook (Render-kompatibel)"""
+async def webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
-    asyncio.run(application.process_update(update))
+    await application.process_update(update)
     return "ok"
 
 # === Bot starten ===
@@ -102,6 +101,10 @@ application.add_handler(CommandHandler("status", status))
 application.add_handler(CommandHandler("predict", predict))
 
 if __name__ == "__main__":
-    config = Config()
-    config.bind = ["0.0.0.0:10000"]
-    asyncio.run(serve(app, config))
+    async def main():
+        await application.initialize()
+        config = Config()
+        config.bind = ["0.0.0.0:10000"]
+        await serve(app, config)
+
+    asyncio.run(main())
