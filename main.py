@@ -23,7 +23,7 @@ application = Application.builder().token(BOT_TOKEN).build()
 # === TELEGRAM BEFEHLE ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 Hallo! Ich bin dein Monica Option KI-Bot 🤖")
-    await update.message.reply_text("Nutze /status für KI-Status oder /train um Training zu starten.")
+    await update.message.reply_text("Nutze /status für KI-Status oder /train um das Training zu starten.")
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📊 KI-Status: Läuft aktuell und empfängt Signale.")
@@ -61,10 +61,15 @@ def index():
 
 @app.route("/webhook", methods=["POST"])
 async def webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, application.bot)
-    await application.update_queue.put(update)
-    return "OK", 200
+    """Empfängt Telegram Updates."""
+    try:
+        data = request.get_json(force=True)
+        update = Update.de_json(data, application.bot)
+        await application.update_queue.put(update)
+        return "OK", 200
+    except Exception as e:
+        print("❌ Fehler im Webhook:", e)
+        return "Fehler", 500
 
 # === START DES SERVERS ===
 async def run():
@@ -77,12 +82,11 @@ async def run():
     config = Config()
     config.bind = [f"0.0.0.0:{port}"]
 
-    # Starte sowohl Telegram-Application als auch Flask-Server
-    await asyncio.gather(
-        application.initialize(),
-        application.start(),
-        serve(app, config),
-    )
+    await application.initialize()
+    await application.start()
+    print("✅ Telegram Application gestartet")
+
+    await serve(app, config)
 
 if __name__ == "__main__":
     asyncio.run(run())
