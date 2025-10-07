@@ -5,4 +5,4 @@ hypercorn==0.15.0
 yfinance==0.2.40
 pandas==2.2.3
 scikit-learn==1.5.2
-numpy==1.26.4
+numpy==2.1.3
