@@ -38,7 +38,7 @@ async def webhook():
 # === HAUPTSTART ===
 async def run():
     port = int(os.environ.get("PORT", 8000))
-    webhook_url = f"https://monica-option-train.onrender.com/{TOKEN}"
+    webhook_url = f"https://monica-option-train.onrender.com/{TELEGRAM_TOKEN}"
 
     print(f"🚀 Setze Webhook auf {webhook_url}")
     await application.bot.set_webhook(webhook_url)
