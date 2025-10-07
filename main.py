@@ -1,85 +1,75 @@
-import os
-import asyncio
+asyncio
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
 
-# ==========================================================
-#   CONFIGURATION
-# ==========================================================
-BOT_TOKEN = os.getenv("BOT_TOKEN", "DEIN_TELEGRAM_BOT_TOKEN_HIER")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://monica-option.onrender.com/webhook")
+import yfinance as yf
+import pandas as pd
+from sklearn.linear_model import LinearRegression
 
+# Flask App
 app = Flask(__name__)
 
-# ==========================================================
-#   TELEGRAM BOT SETUP
-# ==========================================================
+BOT_TOKEN = "DEIN_TELEGRAM_BOT_TOKEN"
+
+# Telegram Bot initialisieren
 application = Application.builder().token(BOT_TOKEN).build()
 
-
-# Beispiel-Command
+# === Beispiel-Funktion: Startkommando ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Hallo! Monica Option Bot ist aktiv!")
-
-
-# Beispiel-Funktion für Strategieprüfung
-async def analyse(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📊 Strategieanalyse läuft... (Demo)")
-
+    await update.message.reply_text("🚀 Monica Option Bot läuft!")
 
 application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("analyse", analyse))
 
+# === Flask Route ===
+@app.route('/')
+def index():
+    return "✅ Monica Option Bot läuft auf Render.com!"
 
-# ==========================================================
-#   WEBHOOK HANDLER (Render-kompatibel)
-# ==========================================================
-@app.route("/webhook", methods=["POST"])
+# === Webhook Endpoint ===
+@app.route('/webhook', methods=['POST'])
 def webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, application.bot)
-
+    """Verarbeitet eingehende Telegram-Updates."""
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        # Wenn kein aktiver Event Loop existiert (z. B. auf Render)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    loop.run_until_complete(application.process_update(update))
+        update = Update.de_json(request.get_json(force=True), application.bot)
+        asyncio.run(application.process_update(update))  # <- sichere Variante auf Python 3.13
+    except Exception as e:
+        print(f"❌ Fehler im Webhook: {e}")
     return "OK", 200
 
+# === Trading Beispiel (Dummy-Funktion) ===
+def simple_prediction(symbol: str):
+    data = yf.download(symbol, period="7d", interval="1h")
+    if len(data) < 2:
+        return "Nicht genug Daten."
 
-# ==========================================================
-#   ROOT ROUTE
-# ==========================================================
-@app.route("/")
-def index():
-    return "✅ Monica Option Bot läuft erfolgreich auf Render!"
+    data["Return"] = data["Close"].pct_change().fillna(0)
+    X = (data.index - data.index[0]).total_seconds().values.reshape(-1, 1)
+    y = data["Return"].values
 
+    model = LinearRegression()
+    model.fit(X, y)
+    trend = model.predict([[X[-1][0] + 3600]])[0]
+    if trend > 0:
+        return f"📈 Signal: Kaufempfehlung ({trend:.4f})"
+    else:
+        return f"📉 Signal: Verkaufsempfehlung ({trend:.4f})"
 
-# ==========================================================
-#   STARTUP TASK
-# ==========================================================
-async def startup():
-    # Setzt Webhook beim Start
-    await application.bot.set_webhook(url=WEBHOOK_URL)
-    print(f"🚀 Webhook gesetzt auf: {WEBHOOK_URL}")
+# === Flask Route zum Testen ===
+@app.route('/predict/<symbol>')
+def predict(symbol):
+    try:
+        return simple_prediction(symbol.upper())
+    except Exception as e:
+        return f"❌ Fehler: {e}"
 
-
-# ==========================================================
-#   SERVER START
-# ==========================================================
+# === Hypercorn Server starten ===
 if __name__ == "__main__":
     config = Config()
     config.bind = ["0.0.0.0:10000"]
+    config.use_uvloop = False  # 🚫 Wichtig! uvloop deaktivieren für Python 3.13
+    config.use_reloader = False
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    # Starte sowohl Bot-Webhook als auch Flask über Hypercorn
-    loop.run_until_complete(startup())
-    loop.run_until_complete(serve(app, config))
+    asyncio.run(serve(app, config))
