@@ -1,8 +1,7 @@
-flask[async]
-gunicorn
-hypercorn
-python-telegram-bot==21.4
-yfinance
-pandas
-scikit-learn
-requests
+Flask==3.0.3
+hypercorn==0.15.0
+python-telegram-bot==20.8
+yfinance==0.2.40
+pandas==2.2.3
+scikit-learn==1.5.2
+numpy==1.26.4
