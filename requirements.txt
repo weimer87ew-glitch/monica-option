@@ -1,4 +1,5 @@
 flask[async]
+gunicorn
 hypercorn
 python-telegram-bot==21.4
 yfinance
