@@ -10,6 +10,98 @@ from hypercorn.config import Config
 # === ENVIRONMENT VARIABLEN ===
 webhook_url = f"https://monica-option.onrender.com/webhook"
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+import os
+import asyncio
+from flask import Flask, request
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
+import logging
+
+# ========================================
+# LOGGING AKTIVIEREN (zeigt Fehler im Render-Log)
+# ========================================
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# ========================================
+# FLASK APP
+# ========================================
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return "✅ Monica Option Bot läuft auf Render!"
+
+# ========================================
+# TELEGRAM TOKEN & CHAT-ID AUS ENVIRONMENT
+# ========================================
+TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+if not TOKEN:
+    raise ValueError("❌ Kein BOT_TOKEN gefunden! Bitte in Render → Environment Variable hinzufügen.")
+
+# ========================================
+# TELEGRAM BOT HANDLER
+# ========================================
+
+async def start(update: Update, context):
+    await update.message.reply_text("👋 Hallo, ich bin Monica Option – dein Trading KI Bot!")
+
+async def echo(update: Update, context):
+    text = update.message.text
+    logger.info(f"Nachricht erhalten: {text}")
+    await update.message.reply_text(f"💬 Du hast gesagt: {text}")
+
+# ========================================
+# TELEGRAM APPLICATION
+# ========================================
+application = Application.builder().token(TOKEN).build()
+
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+
+# ========================================
+# FLASK ENDPOINT FÜR TELEGRAM WEBHOOK
+# ========================================
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.get_json(force=True)
+    update = Update.de_json(data, application.bot)
+    asyncio.run(application.process_update(update))
+    return "OK", 200
+
+# ========================================
+# STARTUP FUNKTION FÜR WEBHOOK (Render)
+# ========================================
+async def set_webhook():
+    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/webhook"
+    if webhook_url:
+        await application.bot.set_webhook(webhook_url)
+        logger.info(f"🌐 Webhook gesetzt: {webhook_url}")
+    else:
+        logger.warning("⚠️ Konnte RENDER_EXTERNAL_HOSTNAME nicht finden – Webhook manuell setzen!")
+
+# ========================================
+# STARTEN
+# ========================================
+if __name__ == '__main__':
+    import threading
+
+    # Telegram-Bot in separatem Thread starten
+    def run_bot():
+        asyncio.run(set_webhook())
+        logger.info("🤖 Telegram-Bot läuft jetzt!")
+
+    threading.Thread(target=run_bot).start()
+
+    # Flask starten (Render erwartet Port)
+    port = int(os.environ.get("PORT", 5000))
+    logger.info(f"🚀 Starte Flask auf Port {port}")
+    app.run(host='0.0.0.0', port=port)
 
 app = Flask(__name__)
 application = Application.builder().token(TOKEN).build()
