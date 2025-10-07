@@ -1,7 +1,7 @@
 flask
 gunicorn
 hypercorn
-python-telegram-bot==20.6
+python-telegram-bot==21.4
 yfinance
 pandas
 scikit-learn
