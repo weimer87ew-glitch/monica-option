@@ -7,7 +7,7 @@ from hypercorn.asyncio import serve
 from hypercorn.config import Config
 
 # === ENVIRONMENT VARIABLEN ===
-TOKEN = os.getenv("TELEGRAM_TOKEN")
+TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 app = Flask(__name__)
