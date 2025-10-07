@@ -1,77 +1,81 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # ✅ Nur CPU-Modus erzwingen
+import asyncio
+import aiohttp
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-import json
-import tensorflow as tf
-from flask import Flask, request, jsonify
+# === Telegram Token ===
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-app = Flask(__name__)
+# === URL deines Render-KI-Servers ===
+TRAIN_SERVER_URL = "https://monica-option-train.onrender.com"
 
-# === KI Trainingsstatus ===
-TRAINING_STATUS_FILE = "training_status.json"
+# === Telegram Bot Befehle ===
 
-
-# === Hilfsfunktionen ===
-def save_status(data):
-    with open(TRAINING_STATUS_FILE, "w") as f:
-        json.dump(data, f)
-
-
-def load_status():
-    if not os.path.exists(TRAINING_STATUS_FILE):
-        return {"is_training": False, "message": "❌ Keine Statusdaten gefunden."}
-    with open(TRAINING_STATUS_FILE, "r") as f:
-        return json.load(f)
-
-
-# === Dummy KI Trainingsfunktion ===
-def train_model():
-    status = {"is_training": True, "message": "🚀 Training läuft..."}
-    save_status(status)
-
-    try:
-        # Beispielmodell (TensorFlow CPU)
-        model = tf.keras.Sequential([
-            tf.keras.layers.Dense(64, activation="relu", input_shape=(10,)),
-            tf.keras.layers.Dense(64, activation="relu"),
-            tf.keras.layers.Dense(1, activation="sigmoid")
-        ])
-
-        model.compile(optimizer="adam", loss="binary_crossentropy")
-        import numpy as np
-        x = np.random.random((500, 10))
-        y = np.random.randint(2, size=(500, 1))
-        model.fit(x, y, epochs=5, verbose=0)
-
-        status = {"is_training": False, "message": "✅ Training erfolgreich abgeschlossen."}
-        save_status(status)
-
-    except Exception as e:
-        status = {"is_training": False, "message": f"❌ Fehler: {e}"}
-        save_status(status)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🤖 Willkommen beim *Monica Option KI-Bot!*\n\n"
+        "Verfügbare Befehle:\n"
+        "• /status – Zeigt den aktuellen KI-Trainingsstatus\n"
+        "• /train – Startet ein neues Training\n"
+        "• /help – Zeigt diese Hilfe\n\n"
+        "🌐 Verbunden mit Render: " + TRAIN_SERVER_URL,
+        parse_mode="Markdown"
+    )
 
 
-# === API-Routen ===
-
-@app.route("/")
-def index():
-    return "✅ Monica Option Training Worker läuft."
-
-
-@app.route("/start_training", methods=["POST"])
-def start_training():
-    from threading import Thread
-    Thread(target=train_model).start()
-    return jsonify({"message": "Training gestartet."})
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📘 *Hilfe – Monica Option Bot*\n\n"
+        "• /status – Zeigt den Trainingsstatus der KI\n"
+        "• /train – Startet das KI-Training manuell\n"
+        "• /help – Diese Übersicht anzeigen",
+        parse_mode="Markdown"
+    )
 
 
-@app.route("/status", methods=["GET"])
-def get_status():
-    return jsonify(load_status())
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fragt den Render-Server nach dem aktuellen KI-Status ab"""
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(f"{TRAIN_SERVER_URL}/status") as response:
+                data = await response.json()
+                msg = (
+                    f"📊 *KI-Status:*\n"
+                    f"🧠 Training aktiv: {data.get('is_training', False)}\n"
+                    f"💬 Nachricht: {data.get('message', 'Keine Daten')}"
+                )
+        except Exception as e:
+            msg = f"⚠️ Fehler beim Abrufen des Status:\n`{e}`"
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 
-# === Startpoint für Render ===
+async def train(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Startet das Training auf Render"""
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(f"{TRAIN_SERVER_URL}/start_training") as response:
+                data = await response.json()
+                msg = f"🚀 {data.get('message', 'Training gestartet!')}"
+        except Exception as e:
+            msg = f"⚠️ Fehler beim Starten des Trainings:\n`{e}`"
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+# === Hauptfunktion ===
+
+async def main():
+    print("✅ Monica Option Bot startet...")
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+    # Befehle registrieren
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("train", train))
+
+    await app.run_polling()
+
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    print(f"🚀 Monica Option KI-Worker läuft auf Port {port}")
-    app.run(host="0.0.0.0", port=port)
+    asyncio.run(main())
