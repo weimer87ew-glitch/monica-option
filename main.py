@@ -38,13 +38,18 @@ async def webhook():
 # === HAUPTSTART ===
 async def run():
     port = int(os.environ.get("PORT", 8000))
-    webhook_url = f"https://monica-option-train.onrender.com/webhook"
-    print(f"📡 Setze Webhook auf {webhook_url}")
+    webhook_url = f"https://monica-option-train.onrender.com/{TOKEN}"
+
+    print(f"🚀 Setze Webhook auf {webhook_url}")
     await application.bot.set_webhook(webhook_url)
+
+    info = await application.bot.get_webhook_info()
+    print("🌐 Webhook-Status:", info)
 
     config = Config()
     config.bind = [f"0.0.0.0:{port}"]
     await serve(app, config)
+
 
 if __name__ == "__main__":
     asyncio.run(run())
