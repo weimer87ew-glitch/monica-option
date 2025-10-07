@@ -100,11 +100,17 @@ application.add_handler(CommandHandler("predict", predict))
 def home():
     return "✅ Monica Option Bot läuft."
 
-@app.route("/webhook", methods=["POST"])
+@app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, application.bot)
-    asyncio.get_event_loop().create_task(application.process_update(update))
+
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        loop.create_task(application.process_update(update))
+    else:
+        loop.run_until_complete(application.process_update(update))
+
     return "ok", 200
 
 # === Start (Render-kompatibel) ===
