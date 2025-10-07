@@ -8,7 +8,7 @@ from hypercorn.asyncio import serve
 from hypercorn.config import Config
 
 # === ENVIRONMENT VARIABLEN ===
-TOKEN = os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN")
+webhook_url = f"https://monica-option.onrender.com/webhook"
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 app = Flask(__name__)
