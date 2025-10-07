@@ -1,5 +1,6 @@
-flask[async]
-gunicorn
+flask
+python-telegram-bot==20.3
 hypercorn
-python-telegram-bot
-requests
+yfinance
+pandas
+scikit-learn
