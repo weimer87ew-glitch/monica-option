@@ -1,8 +1,7 @@
-Flask==3.0.3
+quart==0.19.6
 hypercorn==0.16.0
 python-telegram-bot==21.4
 yfinance==0.2.43
 pandas==2.2.3
 scikit-learn==1.5.2
-requests==2.32.3
 watchdog==5.0.3
