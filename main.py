@@ -8,11 +8,15 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from sklearn.linear_model import LinearRegression
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+import threading
+import time
 
 # === Quart App ===
 app = Quart(__name__)
 
-# === Environment Variables ===
+# === Environment Variablen ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 RENDER_URL = os.getenv("RENDER_EXTERNAL_URL") or "https://monica-option.onrender.com"
@@ -25,7 +29,7 @@ if not CHAT_ID:
 # === Telegram Application ===
 application = Application.builder().token(BOT_TOKEN).build()
 
-# === Trainingsstatus ===
+# === Statusvariablen ===
 training_status = {"running": False, "accuracy": None, "message": ""}
 
 
@@ -99,30 +103,63 @@ application.add_handler(CommandHandler("predict", predict))
 # === Quart Routes ===
 @app.route('/')
 async def index():
-    return "✅ Monica Option Bot läuft mit Quart & Hypercorn."
+    return "✅ Monica Option Bot läuft."
 
 @app.route('/webhook', methods=['POST'])
 async def webhook():
-    data = await request.get_json(force=True)
+    data = await request.get_json()
     update = Update.de_json(data, application.bot)
     await application.process_update(update)
-    return "ok", 200
+    return "ok"
 
 
-# === Server Start ===
+# === Watchdog für Auto-Reload ===
+class ChangeHandler(FileSystemEventHandler):
+    def __init__(self, restart_callback):
+        self.restart_callback = restart_callback
+
+    def on_modified(self, event):
+        if event.src_path.endswith(".py"):
+            print(f"♻️ Datei geändert: {event.src_path}")
+            self.restart_callback()
+
+
+def start_watcher(restart_callback):
+    observer = Observer()
+    handler = ChangeHandler(restart_callback)
+    observer.schedule(handler, ".", recursive=True)
+    observer.start()
+    print("🔍 Watchdog gestartet – wartet auf Codeänderungen...")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
+
+
+# === Neustart-Funktion ===
+def restart_bot():
+    print("♻️ Änderungen erkannt – starte Bot neu...")
+    os._exit(0)  # Render wird automatisch neu starten
+
+
+# === Start Server ===
+async def main():
+    print("🚀 Initialisiere Bot...")
+    await application.initialize()
+    webhook_url = f"{RENDER_URL}/webhook"
+    print(f"🌍 Setze Webhook auf: {webhook_url}")
+    await application.bot.set_webhook(webhook_url)
+    await application.bot.send_message(chat_id=CHAT_ID, text="🔄 Bot wurde neu gestartet und ist wieder aktiv!")
+    print("✅ Webhook gesetzt & Bot initialisiert!")
+
+    config = Config()
+    config.bind = ["0.0.0.0:10000"]
+    await serve(app, config)
+
+
+# === Watchdog in Thread starten ===
 if __name__ == "__main__":
-    async def main():
-        print("🚀 Initialisiere Bot...")
-        await application.initialize()
-
-        webhook_url = f"{RENDER_URL}/webhook"
-        print(f"🌍 Setze Webhook auf: {webhook_url}")
-        await application.bot.set_webhook(webhook_url)
-
-        print("✅ Webhook gesetzt & Bot initialisiert!")
-
-        config = Config()
-        config.bind = ["0.0.0.0:10000"]
-        await serve(app, config)
-
+    threading.Thread(target=start_watcher, args=(restart_bot,), daemon=True).start()
     asyncio.run(main())
