@@ -8,10 +8,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from sklearn.linear_model import LinearRegression
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-import threading
-import time
+
 
 # === Quart App ===
 app = Quart(__name__)
@@ -22,14 +19,14 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 RENDER_URL = os.getenv("RENDER_EXTERNAL_URL") or "https://monica-option.onrender.com"
 
 if not BOT_TOKEN:
-    raise ValueError("❌ Kein BOT_TOKEN gefunden! Bitte in Render → Environment Variable hinzufügen.")
+    raise ValueError("❌ Kein BOT_TOKEN gefunden! Bitte in Render → Environment Variables hinzufügen.")
 if not CHAT_ID:
-    raise ValueError("❌ Kein TELEGRAM_CHAT_ID gefunden! Bitte in Render → Environment Variable hinzufügen.")
+    raise ValueError("❌ Kein TELEGRAM_CHAT_ID gefunden! Bitte in Render → Environment Variables hinzufügen.")
 
 # === Telegram Application ===
 application = Application.builder().token(BOT_TOKEN).build()
 
-# === Statusvariablen ===
+# === Status ===
 training_status = {"running": False, "accuracy": None, "message": ""}
 
 
@@ -65,35 +62,38 @@ async def train_model():
 # === Telegram Commands ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Hallo! Ich bin Monica Option – dein KI-Trading-Bot.\n"
-        "Nutze /train um das Modell zu trainieren oder /predict für eine Prognose."
+        "👋 Hallo! Ich bin *Monica Option* – dein KI-Trading-Bot.\n"
+        "Verfügbare Befehle:\n"
+        "/train → Modell trainieren\n"
+        "/status → Status anzeigen\n"
+        "/predict → Prognose anzeigen",
+        parse_mode="Markdown"
     )
 
 async def train(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if training_status["running"]:
         await update.message.reply_text("⚙️ Training läuft bereits...")
     else:
-        await update.message.reply_text("📊 Starte echtes KI-Training... Bitte warten ⏳")
+        await update.message.reply_text("📊 Starte KI-Training... Bitte warten ⏳")
         asyncio.create_task(train_model())
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = f"📡 Status: {'läuft' if training_status['running'] else 'bereit'}\n"
+    msg = f"📡 Status: {'läuft' if training_status['running'] else 'bereit'}"
     if training_status["accuracy"]:
-        msg += f"🎯 Genauigkeit: {training_status['accuracy']}%"
+        msg += f"\n🎯 Genauigkeit: {training_status['accuracy']}%"
     await update.message.reply_text(msg)
 
 async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     df = yf.download("EURUSD=X", period="1d", interval="1h")
     if df.empty:
-        await update.message.reply_text("❌ Keine Daten verfügbar.")
+        await update.message.reply_text("❌ Keine Marktdaten verfügbar.")
         return
     last = df.iloc[-1]
-    change = last["Close"] - last["Open"]
-    signal = "📈 BUY" if change > 0 else "📉 SELL"
-    await update.message.reply_text(f"Letzter Trend: {signal}\nVeränderung: {round(change, 5)}")
+    signal = "📈 BUY" if last["Close"] > last["Open"] else "📉 SELL"
+    await update.message.reply_text(f"Letzter Trend: {signal}\nOpen: {last['Open']:.5f}, Close: {last['Close']:.5f}")
 
 
-# === Handler registrieren ===
+# === Command Handler registrieren ===
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("train", train))
 application.add_handler(CommandHandler("status", status))
@@ -101,65 +101,31 @@ application.add_handler(CommandHandler("predict", predict))
 
 
 # === Quart Routes ===
-@app.route('/')
+@app.route("/")
 async def index():
-    return "✅ Monica Option Bot läuft."
+    return "✅ Monica Option Bot läuft (Quart-Version)."
 
-@app.route('/webhook', methods=['POST'])
+
+@app.route("/webhook", methods=["POST"])
 async def webhook():
     data = await request.get_json()
     update = Update.de_json(data, application.bot)
     await application.process_update(update)
-    return "ok"
+    return "OK", 200
 
 
-# === Watchdog für Auto-Reload ===
-class ChangeHandler(FileSystemEventHandler):
-    def __init__(self, restart_callback):
-        self.restart_callback = restart_callback
-
-    def on_modified(self, event):
-        if event.src_path.endswith(".py"):
-            print(f"♻️ Datei geändert: {event.src_path}")
-            self.restart_callback()
-
-
-def start_watcher(restart_callback):
-    observer = Observer()
-    handler = ChangeHandler(restart_callback)
-    observer.schedule(handler, ".", recursive=True)
-    observer.start()
-    print("🔍 Watchdog gestartet – wartet auf Codeänderungen...")
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        observer.stop()
-    observer.join()
-
-
-# === Neustart-Funktion ===
-def restart_bot():
-    print("♻️ Änderungen erkannt – starte Bot neu...")
-    os._exit(0)  # Render wird automatisch neu starten
-
-
-# === Start Server ===
-async def main():
-    print("🚀 Initialisiere Bot...")
-    await application.initialize()
-    webhook_url = f"{RENDER_URL}/webhook"
-    print(f"🌍 Setze Webhook auf: {webhook_url}")
-    await application.bot.set_webhook(webhook_url)
-    await application.bot.send_message(chat_id=CHAT_ID, text="🔄 Bot wurde neu gestartet und ist wieder aktiv!")
-    print("✅ Webhook gesetzt & Bot initialisiert!")
-
-    config = Config()
-    config.bind = ["0.0.0.0:10000"]
-    await serve(app, config)
-
-
-# === Watchdog in Thread starten ===
+# === Serverstart + Webhook-Setup ===
 if __name__ == "__main__":
-    threading.Thread(target=start_watcher, args=(restart_bot,), daemon=True).start()
+    async def main():
+        print("🚀 Initialisiere Bot...")
+        await application.initialize()
+
+        webhook_url = f"{RENDER_URL}/webhook"
+        await application.bot.set_webhook(webhook_url)
+        print(f"✅ Webhook gesetzt auf: {webhook_url}")
+
+        config = Config()
+        config.bind = ["0.0.0.0:10000"]
+        await serve(app, config)
+
     asyncio.run(main())
