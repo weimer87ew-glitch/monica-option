@@ -2,7 +2,6 @@ import os
 import asyncio
 import threading
 import time
-import yfinance as yf
 import pandas as pd
 import requests
 from quart import Quart, request
@@ -26,43 +25,37 @@ if not BOT_TOKEN:
     raise RuntimeError("❌ BOT_TOKEN fehlt in Environment Variables")
 if not CHAT_ID:
     print("⚠️ WARN: TELEGRAM_CHAT_ID nicht gesetzt — Benachrichtigungen deaktiviert.")
+if not TWELVEDATA_KEY:
+    raise RuntimeError("❌ TWELVEDATA_KEY fehlt — bitte in Render Environment hinzufügen.")
 
-# === Telegram Application ===
+# === Telegram Bot ===
 application = Application.builder().token(BOT_TOKEN).build()
 
-# === Trainingsstatus ===
+# === Status ===
 training_status = {"running": False, "accuracy": None, "message": ""}
 
 
-# === DATENABRUF (robust, mit Fallback) ===
-def get_forex_data(symbol="EURUSD=X", period="1mo", interval="1h"):
-    """Versuche Yahoo Finance, dann Fallback auf TwelveData."""
+# === TwelveData Abruf ===
+def get_forex_data(symbol="EUR/USD", interval="1h", outputsize=500):
+    """Hole Kursdaten von TwelveData (stabiler als Yahoo Finance)."""
+    url = (
+        f"https://api.twelvedata.com/time_series?"
+        f"symbol={symbol}&interval={interval}&outputsize={outputsize}&apikey={TWELVEDATA_KEY}"
+    )
     try:
-        df = yf.download(symbol, period=period, interval=interval, progress=False)
-        if not df.empty:
-            return df
-        raise ValueError("Leere Yahoo-Daten")
-    except Exception as e:
-        print(f"⚠️ Yahoo Finance Fehler: {e}")
-        # Fallback auf TwelveData
-        if not TWELVEDATA_KEY:
-            print("❌ Kein TWELVEDATA_KEY im Environment gesetzt — kein Fallback möglich.")
+        r = requests.get(url, timeout=10)
+        data = r.json()
+        if "values" in data:
+            df = pd.DataFrame(data["values"])
+            df["datetime"] = pd.to_datetime(df["datetime"])
+            df = df.astype(float)
+            df.set_index("datetime", inplace=True)
+            return df.sort_index()
+        else:
+            print("⚠️ Fehlerhafte TwelveData-Antwort:", data)
             return pd.DataFrame()
-
-        url = f"https://api.twelvedata.com/time_series?symbol=EUR/USD&interval={interval}&outputsize=500&apikey={TWELVEDATA_KEY}"
-        try:
-            r = requests.get(url)
-            data = r.json()
-            if "values" in data:
-                df = pd.DataFrame(data["values"])
-                df["datetime"] = pd.to_datetime(df["datetime"])
-                df.set_index("datetime", inplace=True)
-                df = df.astype(float)
-                return df.sort_index()
-            else:
-                print("⚠️ Fehlerhafte TwelveData-Antwort:", data)
-        except Exception as e2:
-            print("❌ TwelveData Fehler:", e2)
+    except Exception as e:
+        print("❌ TwelveData Fehler:", e)
         return pd.DataFrame()
 
 
@@ -74,14 +67,14 @@ async def train_model():
     print(training_status["message"])
 
     try:
-        df = get_forex_data("EURUSD=X", "1mo", "1h")
+        df = get_forex_data("EUR/USD", "1h")
         if df.empty or len(df) < 10:
             training_status["message"] = "❌ Zu wenige oder keine Daten verfügbar."
             training_status["running"] = False
             return
 
-        df["Target"] = df["Close"].shift(-1)
-        X = df[["Open", "High", "Low", "Close"]].iloc[:-1]
+        df["Target"] = df["close"].shift(-1)
+        X = df[["open", "high", "low", "close"]].iloc[:-1]
         y = df["Target"].iloc[:-1]
 
         model = LinearRegression()
@@ -116,27 +109,27 @@ async def status(update, context):
     await update.message.reply_text(msg)
 
 async def predict(update, context):
-    df = get_forex_data("EURUSD=X", "1d", "1h")
+    df = get_forex_data("EUR/USD", "1h", 24)
     if df.empty:
         await update.message.reply_text("❌ Keine Kursdaten verfügbar.")
         return
     last = df.iloc[-1]
-    change = last["Close"] - last["Open"]
+    change = last["close"] - last["open"]
     signal = "📈 BUY" if change > 0 else "📉 SELL"
     await update.message.reply_text(f"{signal} — Δ {round(change,5)}")
 
 
-# === Telegram Handler registrieren ===
+# === Telegram Handler ===
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("train", train))
 application.add_handler(CommandHandler("status", status))
 application.add_handler(CommandHandler("predict", predict))
 
 
-# === WEBHOOK ENDPOINT (Quart) ===
+# === Quart Webserver ===
 @app.route("/")
 async def index():
-    return "✅ Monica Option Bot läuft."
+    return "✅ Monica Option Bot läuft mit TwelveData."
 
 @app.route("/webhook", methods=["POST"])
 async def webhook():
@@ -146,7 +139,7 @@ async def webhook():
     return "OK"
 
 
-# === WATCHDOG: automatischer Neustart bei Codeänderung ===
+# === WATCHDOG (auto-restart bei Codeänderung) ===
 class RestartHandler(FileSystemEventHandler):
     def __init__(self, loop):
         super().__init__()
@@ -198,7 +191,7 @@ async def main():
 
     if CHAT_ID:
         try:
-            await application.bot.send_message(chat_id=CHAT_ID, text="✅ Bot gestartet (Quart + Watchdog aktiv).")
+            await application.bot.send_message(chat_id=CHAT_ID, text="✅ Bot gestartet (TwelveData aktiv).")
         except Exception as e:
             print("Info: Startup-Message fehlgeschlagen:", e)
 
