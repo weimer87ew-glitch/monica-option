@@ -4,6 +4,7 @@ import threading
 import time
 import yfinance as yf
 import pandas as pd
+import requests
 from quart import Quart, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler
@@ -18,12 +19,13 @@ app = Quart(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 RENDER_URL = os.getenv("RENDER_EXTERNAL_URL") or "https://monica-option.onrender.com"
+TWELVEDATA_KEY = os.getenv("TWELVEDATA_KEY")
 PORT = int(os.getenv("PORT", "10000"))
 
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN fehlt in Environment Variables")
+    raise RuntimeError("❌ BOT_TOKEN fehlt in Environment Variables")
 if not CHAT_ID:
-    print("WARN: TELEGRAM_CHAT_ID nicht gesetzt — Benachrichtigungen deaktiviert.")
+    print("⚠️ WARN: TELEGRAM_CHAT_ID nicht gesetzt — Benachrichtigungen deaktiviert.")
 
 # === Telegram Application ===
 application = Application.builder().token(BOT_TOKEN).build()
@@ -32,7 +34,39 @@ application = Application.builder().token(BOT_TOKEN).build()
 training_status = {"running": False, "accuracy": None, "message": ""}
 
 
-# === TRAINING (kleines Beispiel) ===
+# === DATENABRUF (robust, mit Fallback) ===
+def get_forex_data(symbol="EURUSD=X", period="1mo", interval="1h"):
+    """Versuche Yahoo Finance, dann Fallback auf TwelveData."""
+    try:
+        df = yf.download(symbol, period=period, interval=interval, progress=False)
+        if not df.empty:
+            return df
+        raise ValueError("Leere Yahoo-Daten")
+    except Exception as e:
+        print(f"⚠️ Yahoo Finance Fehler: {e}")
+        # Fallback auf TwelveData
+        if not TWELVEDATA_KEY:
+            print("❌ Kein TWELVEDATA_KEY im Environment gesetzt — kein Fallback möglich.")
+            return pd.DataFrame()
+
+        url = f"https://api.twelvedata.com/time_series?symbol=EUR/USD&interval={interval}&outputsize=500&apikey={TWELVEDATA_KEY}"
+        try:
+            r = requests.get(url)
+            data = r.json()
+            if "values" in data:
+                df = pd.DataFrame(data["values"])
+                df["datetime"] = pd.to_datetime(df["datetime"])
+                df.set_index("datetime", inplace=True)
+                df = df.astype(float)
+                return df.sort_index()
+            else:
+                print("⚠️ Fehlerhafte TwelveData-Antwort:", data)
+        except Exception as e2:
+            print("❌ TwelveData Fehler:", e2)
+        return pd.DataFrame()
+
+
+# === TRAINING ===
 async def train_model():
     global training_status
     training_status["running"] = True
@@ -40,10 +74,9 @@ async def train_model():
     print(training_status["message"])
 
     try:
-        df = yf.download("EURUSD=X", period="1mo", interval="1h")
-        df.dropna(inplace=True)
-        if len(df) < 10:
-            training_status["message"] = "❌ Zu wenige Daten."
+        df = get_forex_data("EURUSD=X", "1mo", "1h")
+        if df.empty or len(df) < 10:
+            training_status["message"] = "❌ Zu wenige oder keine Daten verfügbar."
             training_status["running"] = False
             return
 
@@ -67,7 +100,7 @@ async def train_model():
 
 # === TELEGRAM COMMANDS ===
 async def start(update, context):
-    await update.message.reply_text("👋 Monica Option Bot aktiv. Befehle: /train /status /predict")
+    await update.message.reply_text("👋 Monica Option Bot aktiv.\nBefehle: /train /status /predict")
 
 async def train(update, context):
     if training_status["running"]:
@@ -83,9 +116,9 @@ async def status(update, context):
     await update.message.reply_text(msg)
 
 async def predict(update, context):
-    df = yf.download("EURUSD=X", period="1d", interval="1h")
+    df = get_forex_data("EURUSD=X", "1d", "1h")
     if df.empty:
-        await update.message.reply_text("❌ Keine Daten.")
+        await update.message.reply_text("❌ Keine Kursdaten verfügbar.")
         return
     last = df.iloc[-1]
     change = last["Close"] - last["Open"]
@@ -93,14 +126,14 @@ async def predict(update, context):
     await update.message.reply_text(f"{signal} — Δ {round(change,5)}")
 
 
-# register handlers
+# === Telegram Handler registrieren ===
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("train", train))
 application.add_handler(CommandHandler("status", status))
 application.add_handler(CommandHandler("predict", predict))
 
 
-# === WEBHOOK ENDPOINT (Quart async) ===
+# === WEBHOOK ENDPOINT (Quart) ===
 @app.route("/")
 async def index():
     return "✅ Monica Option Bot läuft."
@@ -113,7 +146,7 @@ async def webhook():
     return "OK"
 
 
-# === WATCHDOG (File-change -> restart) ===
+# === WATCHDOG: automatischer Neustart bei Codeänderung ===
 class RestartHandler(FileSystemEventHandler):
     def __init__(self, loop):
         super().__init__()
@@ -121,7 +154,6 @@ class RestartHandler(FileSystemEventHandler):
         self._last = 0.0
 
     def on_modified(self, event):
-        # Debounce multiple events
         if not event.src_path.endswith(".py"):
             return
         now = time.time()
@@ -130,7 +162,6 @@ class RestartHandler(FileSystemEventHandler):
         self._last = now
 
         print(f"♻️ Dateiänderung erkannt: {event.src_path} -> Neustart")
-        # Notify via Telegram (safely from background thread)
         if CHAT_ID:
             coro = application.bot.send_message(chat_id=CHAT_ID, text="🔄 Bot wird neu gestartet (Code-Update)...")
             try:
@@ -138,8 +169,6 @@ class RestartHandler(FileSystemEventHandler):
                 fut.result(timeout=5)
             except Exception as e:
                 print("Warnung: konnte Restart-Nachricht nicht senden:", e)
-
-        # give Telegram a short time, then exit -> Render will restart the service
         time.sleep(0.5)
         os._exit(0)
 
@@ -158,29 +187,25 @@ def start_watchdog(loop):
     observer.join()
 
 
-# === MAIN + SERVER START ===
+# === MAIN START ===
 async def main():
-    print("🚀 Initialisiere Bot...")
+    print("🚀 Initialisiere Monica Option Bot...")
     await application.initialize()
 
-    # set webhook
     webhook_url = f"{RENDER_URL}/webhook"
     await application.bot.set_webhook(webhook_url)
     print(f"✅ Webhook gesetzt: {webhook_url}")
 
-    # try to send a startup message (non-fatal)
     if CHAT_ID:
         try:
-            await application.bot.send_message(chat_id=CHAT_ID, text="✅ Bot gestartet (Quart + Watchdog).")
+            await application.bot.send_message(chat_id=CHAT_ID, text="✅ Bot gestartet (Quart + Watchdog aktiv).")
         except Exception as e:
             print("Info: Startup-Message fehlgeschlagen:", e)
 
-    # start watchdog in a background thread (passes the running event loop)
     loop = asyncio.get_running_loop()
     t = threading.Thread(target=start_watchdog, args=(loop,), daemon=True)
     t.start()
 
-    # start server
     config = Config()
     config.bind = [f"0.0.0.0:{PORT}"]
     await serve(app, config)
