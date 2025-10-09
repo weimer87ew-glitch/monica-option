@@ -1,7 +1,20 @@
 services:
   - type: web
-    name: monica-option
+    name: monica-option-bot
     env: python
+    region: frankfurt
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
-    plan: free
+    autoDeploy: true
+    envVars:
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: TWELVEDATA_API_KEY
+        sync: false
+      - key: ALPHAVANTAGE_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: CHAT_ID
+        sync: false
