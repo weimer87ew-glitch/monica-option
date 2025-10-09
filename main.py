@@ -19,6 +19,7 @@ ALPHAVANTAGE_KEY = os.getenv("ALPHAVANTAGE_API_KEY", "")
 TELEGRAM_TOKEN = os.getenv("BOT_TOKEN", "")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 MODEL_PATH = "model_eurusd.h5"
+SELF_URL = os.getenv("RENDER_EXTERNAL_URL", "")  # Render stellt diese ENV automatisch bereit
 
 # ==============================
 # 📬 Telegram
@@ -204,20 +205,34 @@ async def auto_loop():
         print("💤 Warte 2 Stunden bis zum nächsten Durchlauf...\n")
         await asyncio.sleep(2 * 60 * 60)
 
-def start_bot():
-    asyncio.run(auto_loop())
-
 # ==============================
-# 🌐 Flask Keepalive
+# 🌐 Flask Keepalive + Self-Ping
 # ==============================
 app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return "✅ Monica Option Bot läuft seit " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return f"✅ Monica Option Bot läuft seit {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
+def keep_alive():
+    """Pingt sich selbst alle 10 Minuten, damit Render aktiv bleibt"""
+    if not SELF_URL:
+        print("⚠️ Keine SELF_URL gesetzt – Self-Ping deaktiviert.")
+        return
+    while True:
+        try:
+            requests.get(SELF_URL, timeout=10)
+            print(f"🔁 Self-Ping erfolgreich an {SELF_URL}")
+        except Exception as e:
+            print(f"⚠️ Self-Ping Fehler: {e}")
+        asyncio.run(asyncio.sleep(600))  # alle 10 Minuten
+
+def start_bot():
+    asyncio.run(auto_loop())
 
 if __name__ == "__main__":
-    print("🚀 Starte Monica Option KI v2.1 (Render-kompatibel ohne Konflikte)...")
-    send_telegram_message("🤖 Monica Option KI v2.1 gestartet (Render-kompatibel).")
+    print("🚀 Starte Monica Option KI v2.2 (Render-kompatibel mit Self-Ping)...")
+    send_telegram_message("🤖 Monica Option KI v2.2 gestartet (mit Self-Ping für 24/7 Betrieb).")
     threading.Thread(target=start_bot, daemon=True).start()
+    threading.Thread(target=keep_alive, daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
